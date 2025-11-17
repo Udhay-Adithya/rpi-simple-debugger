@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rpi-simple-debugger"
+version = "0.1.0"
+description = "Beginner-friendly Raspberry Pi GPIO and system debugger with FastAPI/WebSockets backend."
+readme = "README.md"
+authors = [{ name = "Tejas Sai Prashad", email = "tejassaiprashad@gmail.com" }]
+requires-python = ">=3.9"
+keywords = ["raspberry-pi", "gpio", "debugger", "fastapi", "websockets"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Intended Audience :: Education",
+  "Intended Audience :: Developers",
+  "Topic :: System :: Hardware",
+]
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "pydantic>=2.7.0",
+  "psutil>=6.0.0",
+]
+
+[project.optional-dependencies]
+raspberry = [
+  "RPi.GPIO>=0.7.0; platform_machine == 'armv7l' or platform_machine == 'aarch64'",
+]
+
+dynamic = []
+
+[project.urls]
+Homepage = "https://pin-sight.vercel.app/"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rpi_simple_debugger"]
