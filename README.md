@@ -41,29 +41,55 @@ pip install websockets
 
 ## Quick Start
 
-**1. Create a settings file (optional):**
+**Option 1: Start from Python code (recommended for library usage)**
 
-```jsonc
-// rpi_debugger_settings.json
-{
-  "gpio_enabled": true,
-  "wifi_enabled": true,
-  "bluetooth_enabled": true,
-  "system_health_enabled": true,
-  "gpio_poll_interval_s": 0.1,
-  "network_poll_interval_s": 2.0,
-  "system_poll_interval_s": 2.0,
-  "gpio_labels": [
-    { "pin": 17, "label": "LED" },
-    { "pin": 27, "label": "Button" }
-  ]
-}
+```python
+from rpi_simple_debugger import start_debugger_server, DebuggerSettings, push_custom
+
+# Optional: customize settings
+settings = DebuggerSettings(
+    gpio_enabled=True,
+    wifi_enabled=True,
+    bluetooth_enabled=True,
+    system_health_enabled=True,
+    gpio_labels=[
+        {"pin": 17, "label": "LED"},
+        {"pin": 27, "label": "Button"},
+    ],
+)
+
+# Start the debugger server in a background thread
+handle = start_debugger_server(
+    host="0.0.0.0",
+    port=8000,
+    settings=settings,
+)
+
+# Your application code here
+# ...
+
+# Push custom debug data
+push_custom("my_app", {"state": "running", "jobs": 5})
+
+# Optional: stop the server on shutdown
+# handle.stop()
 ```
 
-**2. Run the server:**
+**Option 2: Run as standalone server**
 
 ```bash
 uvicorn rpi_simple_debugger.app:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+**Option 3: Mount in existing FastAPI app**
+
+```python
+from fastapi import FastAPI
+from rpi_simple_debugger import create_app, DebuggerSettings
+
+main_app = FastAPI()
+debug_app = create_app(DebuggerSettings())
+main_app.mount("/debug", debug_app)
 ```
 
 **3. Connect to the API:**
@@ -87,38 +113,87 @@ Returns the most recent snapshot of all monitoring data.
     "17": {
       "pin": 17,
       "value": 1,
-      "label": "LED"
-    },
-    "27": {
-      "pin": 27,
-      "value": 0,
-      "label": "Button"
+      "label": "LED",
+      "mode": "in",
+      "pull": "none",
+      "timestamp": "2025-11-18T12:34:56.789Z"
     }
   },
   "wifi": {
     "connected": true,
     "ssid": "MyNetwork",
     "ip_address": "192.168.1.42",
-    "signal_level_dbm": -55
+    "signal_level_dbm": -55,
+    "timestamp": "2025-11-18T12:34:56.789Z"
   },
   "bluetooth": {
     "powered": true,
-    "connected": false
+    "connected": false,
+    "timestamp": "2025-11-18T12:34:56.789Z"
   },
   "system": {
     "cpu_temp_c": 52.3,
     "cpu_percent": 23.5,
-    "disk_used_percent": 41.2
-  }
+    "disk_used_percent": 41.2,
+    "memory_percent": 32.1,
+    "swap_percent": 0.0,
+    "load_1": 0.18,
+    "load_5": 0.12,
+    "load_15": 0.05,
+    "uptime_s": 12345.6,
+    "boot_time": 1699700000.0,
+    "process_count": 112,
+    "timestamp": "2025-11-18T12:34:56.789Z"
+  },
+  "interfaces": [
+    {
+      "name": "wlan0",
+      "is_up": true,
+      "rx_bytes": 1048576,
+      "tx_bytes": 524288,
+      "rx_errs": 0,
+      "tx_errs": 0
+    }
+  ],
+  "health": {
+    "cpu_hot": false,
+    "disk_low": false,
+    "memory_high": false,
+    "wifi_poor": false
+  },
+  "gpio_schema": {
+    "17": {
+      "pin": 17,
+      "label": "LED",
+      "mode": "in",
+      "pull": "none"
+    }
+  },
+  "board": {
+    "name": "armv7l",
+    "cpu_arch": "armv7l",
+    "os": "Linux 5.10.63"
+  },
+  "app": {
+    "debugger_version": "0.1.0",
+    "python_version": "3.9.2"
+  },
+  "custom": {}
 }
 ```
 
 **Field Descriptions:**
 
-- `gpio`: Object containing the latest state of each monitored GPIO pin (only pins that have changed at least once)
-- `wifi`: Latest WiFi connection status
-- `bluetooth`: Latest Bluetooth status
-- `system`: Latest system health metrics
+- `gpio`: Latest state of each monitored GPIO pin with mode and pull configuration
+- `wifi`: WiFi connection status with signal strength
+- `bluetooth`: Bluetooth adapter status
+- `system`: System health metrics including CPU, memory, disk, load averages, uptime
+- `interfaces`: Per-interface network statistics (RX/TX bytes and errors)
+- `health`: Derived health flags based on configured thresholds
+- `gpio_schema`: Pin definitions for building dynamic UIs
+- `board`: Board and OS information
+- `app`: Debugger and Python version
+- `custom`: User-provided debug data via `push_custom()`
 
 ### WebSocket Endpoint
 
@@ -129,6 +204,7 @@ Establishes a WebSocket connection that broadcasts real-time updates whenever mo
 **Message Types:**
 
 All WebSocket messages follow this structure:
+
 ```json
 {
   "type": "<message_type>",
@@ -146,15 +222,22 @@ Sent whenever a GPIO pin changes state (0→1 or 1→0).
   "data": {
     "pin": 17,
     "value": 1,
-    "label": "LED"
+    "label": "LED",
+    "mode": "in",
+    "pull": "none",
+    "timestamp": "2025-11-18T12:34:56.789Z"
   }
 }
 ```
 
 **Fields:**
+
 - `pin` (integer): BCM pin number
 - `value` (integer): Current pin state (0 = LOW, 1 = HIGH)
 - `label` (string|null): Human-readable label from configuration, or `null` if not set
+- `mode` (string): GPIO mode (`"in"` or `"out"`)
+- `pull` (string): Pull resistor configuration (`"up"`, `"down"`, or `"none"`)
+- `timestamp` (string): ISO 8601 timestamp
 
 **Note:** GPIO updates are only sent when pin states change. Connect a button, switch, or wire to trigger updates.
 
@@ -175,6 +258,7 @@ Sent periodically (default: every 2 seconds) with WiFi connection status.
 ```
 
 **Fields:**
+
 - `connected` (boolean): Whether WiFi is currently connected
 - `ssid` (string|null): Network name, or `null` if disconnected
 - `ip_address` (string|null): Current IP address, or `null` if disconnected
@@ -189,14 +273,76 @@ Sent periodically (default: every 2 seconds) with Bluetooth status.
   "type": "bluetooth",
   "data": {
     "powered": true,
-    "connected": false
+    "connected": false,
+    "timestamp": "2025-11-18T12:34:56.789Z"
   }
 }
 ```
 
 **Fields:**
+
 - `powered` (boolean): Whether Bluetooth adapter is powered on
 - `connected` (boolean): Whether any Bluetooth device is currently connected
+- `timestamp` (string): ISO 8601 timestamp
+
+#### Meta Update
+
+Sent on server startup and when clients connect, providing board capabilities and current state.
+
+```json
+{
+  "type": "meta",
+  "data": {
+    "board": {
+      "name": "armv7l",
+      "cpu_arch": "armv7l",
+      "os": "Linux 5.10.63"
+    },
+    "app": {
+      "debugger_version": "0.1.0",
+      "python_version": "3.9.2"
+    },
+    "timestamp": "2025-11-18T12:34:56.789Z",
+    "enabled": {
+      "gpio": true,
+      "wifi": true,
+      "bluetooth": true,
+      "system_health": true
+    }
+  }
+}
+```
+
+**Fields:**
+
+- `board`: Hardware and OS information
+- `app`: Debugger and Python version
+- `enabled`: Which monitoring subsystems are active
+- `timestamp`: ISO 8601 timestamp
+
+#### Custom Data Update
+
+Sent when user code calls `push_custom()` to stream application-specific debug data.
+
+```json
+{
+  "type": "custom",
+  "data": {
+    "name": "my_app",
+    "payload": {
+      "state": "running",
+      "jobs": 5
+    },
+    "timestamp": "2025-11-18T12:34:56.789Z"
+  }
+}
+```
+
+**Fields:**
+
+- `name` (string): Custom data stream name
+- `payload` (object): Arbitrary JSON data provided by user
+- `timestamp` (string): ISO 8601 timestamp
 
 #### System Health Update
 
@@ -208,15 +354,32 @@ Sent periodically (default: every 2 seconds) with system health metrics.
   "data": {
     "cpu_temp_c": 47.2,
     "cpu_percent": 6.6,
-    "disk_used_percent": 18.8
+    "disk_used_percent": 18.8,
+    "memory_percent": 32.1,
+    "swap_percent": 0.0,
+    "load_1": 0.18,
+    "load_5": 0.12,
+    "load_15": 0.05,
+    "uptime_s": 12345.6,
+    "boot_time": 1699700000.0,
+    "process_count": 112,
+    "timestamp": "2025-11-18T12:34:56.789Z"
   }
 }
 ```
 
 **Fields:**
+
 - `cpu_temp_c` (float|null): CPU temperature in Celsius, or `null` if unavailable
 - `cpu_percent` (float): CPU usage percentage (0-100)
 - `disk_used_percent` (float): Disk usage percentage (0-100)
+- `memory_percent` (float): Memory usage percentage (0-100)
+- `swap_percent` (float|null): Swap usage percentage (0-100)
+- `load_1`, `load_5`, `load_15` (float|null): System load averages (1/5/15 min)
+- `uptime_s` (float|null): System uptime in seconds
+- `boot_time` (float|null): Boot time as Unix timestamp
+- `process_count` (int|null): Total number of running processes
+- `timestamp` (string): ISO 8601 timestamp
 
 ## Example Client
 
@@ -246,6 +409,7 @@ All configuration is optional. If no `rpi_debugger_settings.json` file is presen
 | `network_poll_interval_s` | float | `2.0` | Network polling interval in seconds |
 | `system_poll_interval_s` | float | `2.0` | System health polling interval in seconds |
 | `gpio_labels` | array | `[]` | Array of pin labels: `[{"pin": 17, "label": "LED"}]` |
+| `gpio_backend` | string | `"auto"` | GPIO backend: `"auto"`, `"rpi"`, or `"mock"` |
 
 **Default Monitored GPIO Pins (BCM numbering):**
 `2, 3, 4, 17, 18, 22, 23, 24, 25, 27`
@@ -256,7 +420,10 @@ These are generally safe input pins on Raspberry Pi 3/4 models.
 
 - **No custom hardware required** – uses on-board peripherals only
 - **Safe defaults** – GPIO configured as inputs only, graceful failure on non-Raspberry Pi machines
-- **Minimal configuration** – single optional JSON file
+- **Board-agnostic** – pluggable GPIO backends support custom boards and mock testing
+- **Minimal configuration** – programmatic settings or optional JSON file
+- **Type-safe** – all data modeled with Pydantic for validation and schema generation
+- **Embeddable** – start from code or mount in existing FastAPI apps
 - **Clear, commented code** – intended for learners and educators
 - **Build any UI** – FastAPI backend works with any frontend framework
 
