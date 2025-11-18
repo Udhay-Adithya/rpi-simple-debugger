@@ -22,6 +22,13 @@ class DebuggerSettings(BaseModel):
     system_poll_interval_s: float = 2.0
 
     gpio_labels: List[GPIOLabel] = Field(default_factory=list)
+    gpio_backend: str = Field(
+        "auto",
+        description=(
+            "Which GPIO backend to use: 'auto', 'rpi', 'mock', or a custom backend "
+            "string understood by the host application."
+        ),
+    )
 
     @property
     def gpio_label_map(self) -> Dict[int, str]:

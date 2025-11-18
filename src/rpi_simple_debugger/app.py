@@ -1,59 +1,24 @@
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from .config import DebuggerSettings, load_settings
-from .gpio_monitor import GPIOMonitor, GPIOState
-from .network_monitor import NetworkMonitor, WiFiStatus, BluetoothStatus
-from .system_monitor import SystemMonitor, SystemHealth
-
-
-class ConnectionManager:
-    def __init__(self) -> None:
-        self.active: List[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket) -> None:
-        await websocket.accept()
-        self.active.append(websocket)
-
-    def disconnect(self, websocket: WebSocket) -> None:
-        if websocket in self.active:
-            self.active.remove(websocket)
-
-    async def broadcast(self, message: Dict[str, Any]) -> None:
-        to_remove: List[WebSocket] = []
-        for ws in self.active:
-            try:
-                await ws.send_json(message)
-            except Exception:
-                to_remove.append(ws)
-        for ws in to_remove:
-            self.disconnect(ws)
+from .engine import DebuggerEngine
+from .gpio_monitor import GPIOMonitor
+from .models import GPIOState, SystemHealth, WiFiStatus, BluetoothStatus
+from .network_monitor import NetworkMonitor
+from .system_monitor import SystemMonitor
 
 
 def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
     settings = settings or load_settings()
 
     app = FastAPI(title="rpi-simple-debugger", version="0.1.0")
-    manager = ConnectionManager()
-
-    loop = asyncio.get_event_loop()
-
-    # Shared state for latest values (use simple dicts for beginner clarity).
-    latest_state: Dict[str, Any] = {
-        "gpio": {},
-        "wifi": None,
-        "bluetooth": None,
-        "system": None,
-    }
-
-    async def push_update(kind: str, payload: Any) -> None:
-        latest_state[kind] = payload
-        await manager.broadcast({"type": kind, "data": payload})
+    engine = DebuggerEngine(settings=settings, version="0.1.0")
+    app.state.engine = engine
 
     # Monitors
     gpio_monitor: GPIOMonitor | None = None
@@ -62,17 +27,7 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
         default_pins = [2, 3, 4, 17, 18, 22, 23, 24, 25, 27]
 
         def on_gpio_change(state: GPIOState) -> None:
-            asyncio.run_coroutine_threadsafe(
-                push_update(
-                    "gpio",
-                    {
-                        "pin": state.pin,
-                        "value": state.value,
-                        "label": state.label,
-                    },
-                ),
-                loop,
-            )
+            engine.update_gpio(state)
 
         gpio_monitor = GPIOMonitor(
             pins=default_pins,
@@ -82,19 +37,13 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
         )
 
     def on_wifi(status: WiFiStatus) -> None:
-        asyncio.run_coroutine_threadsafe(
-            push_update("wifi", status.__dict__), loop
-        )
+        engine.update_wifi(status)
 
     def on_bt(status: BluetoothStatus) -> None:
-        asyncio.run_coroutine_threadsafe(
-            push_update("bluetooth", status.__dict__), loop
-        )
+        engine.update_bluetooth(status)
 
     def on_system(health: SystemHealth) -> None:
-        asyncio.run_coroutine_threadsafe(
-            push_update("system", health.__dict__), loop
-        )
+        engine.update_system(health)
 
     network_monitor: NetworkMonitor | None = None
     if settings.wifi_enabled or settings.bluetooth_enabled:
@@ -120,6 +69,10 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
         if system_monitor is not None:
             system_monitor.start()
 
+        # Send an initial meta broadcast so connected clients quickly
+        # understand capabilities.
+        await engine.send_meta()
+
     @app.on_event("shutdown")
     async def _shutdown() -> None:  # pragma: no cover - integration behavior
         if gpio_monitor is not None:
@@ -133,10 +86,12 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
     async def get_status() -> JSONResponse:
         """Return the most recent snapshot for easy polling UIs."""
 
-        return JSONResponse(latest_state)
+        snapshot = app.state.engine.snapshot
+        return JSONResponse(snapshot.model_dump())
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:  # pragma: no cover
+        manager = app.state.engine.manager
         await manager.connect(websocket)
         try:
             # For now, the client does not need to send anything.

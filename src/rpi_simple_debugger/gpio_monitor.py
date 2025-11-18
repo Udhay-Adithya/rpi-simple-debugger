@@ -5,17 +5,8 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
-try:  # Optional on non-RPi platforms
-    import RPi.GPIO as GPIO  # type: ignore[import]
-except Exception:  # pragma: no cover - not available on dev machines
-    GPIO = None  # type: ignore[assignment]
-
-
-@dataclass
-class GPIOState:
-    pin: int
-    value: int
-    label: Optional[str]
+from .gpio_backend import GPIOBackend, MockGPIOBackend, RPiGPIOBackend
+from .models import GPIOState
 
 
 class GPIOMonitor:
@@ -39,18 +30,20 @@ class GPIOMonitor:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._last_values: Dict[int, int] = {}
+        # Auto-select a backend: use real GPIO when possible, otherwise mock.
+        backend: GPIOBackend
+        candidate = RPiGPIOBackend()
+        # If RPi.GPIO import failed, candidate behaves like mock anyway.
+        backend = (
+            candidate if isinstance(candidate, RPiGPIOBackend) else MockGPIOBackend()
+        )
+        self._backend = backend
 
     def start(self) -> None:
-        if GPIO is None:
-            # Library can still run; GPIO data will just be absent.
-            return
-
         if self._thread and self._thread.is_alive():
             return
-
-        GPIO.setmode(GPIO.BCM)
         for pin in self._pins:
-            GPIO.setup(pin, GPIO.IN)
+            self._backend.setup_input(pin)
 
         self._stop.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True)
@@ -60,13 +53,12 @@ class GPIOMonitor:
         self._stop.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1)
-        if GPIO is not None:
-            GPIO.cleanup()
+        self._backend.cleanup()
 
     def _loop(self) -> None:
         while not self._stop.is_set():
             for pin in self._pins:
-                value = GPIO.input(pin) if GPIO is not None else 0
+                value = self._backend.read(pin)
                 last = self._last_values.get(pin)
                 if last is None or last != value:
                     self._last_values[pin] = value

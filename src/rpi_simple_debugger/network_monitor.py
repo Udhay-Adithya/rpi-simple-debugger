@@ -3,22 +3,11 @@ from __future__ import annotations
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
 from typing import Callable, Optional
 
+import psutil
 
-@dataclass
-class WiFiStatus:
-    connected: bool
-    ssid: Optional[str]
-    ip_address: Optional[str]
-    signal_level_dbm: Optional[int]
-
-
-@dataclass
-class BluetoothStatus:
-    powered: bool
-    connected: bool
+from .models import NetInterfaceStats, WiFiStatus, BluetoothStatus
 
 
 class NetworkMonitor:
