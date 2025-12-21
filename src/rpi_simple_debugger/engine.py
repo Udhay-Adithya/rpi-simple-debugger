@@ -35,7 +35,7 @@ class ConnectionManager:
 
     async def broadcast(self, message: DebuggerMessage) -> None:
         to_remove: List[WebSocket] = []
-        payload = message.model_dump()
+        payload = message.model_dump(mode="json")
         for ws in self._active:
             try:
                 await ws.send_json(payload)
@@ -77,29 +77,33 @@ class DebuggerEngine:
 
     def update_gpio(self, state: GPIOState) -> None:
         self._snapshot.gpio[state.pin] = state
-        self._schedule_broadcast(DebuggerMessage(type="gpio", data=state.model_dump()))
+        self._schedule_broadcast(
+            DebuggerMessage(type="gpio", data=state.model_dump(mode="json"))
+        )
 
     def update_wifi(self, status: WiFiStatus) -> None:
         self._snapshot.wifi = status
-        self._schedule_broadcast(DebuggerMessage(type="wifi", data=status.model_dump()))
+        self._schedule_broadcast(
+            DebuggerMessage(type="wifi", data=status.model_dump(mode="json"))
+        )
 
     def update_bluetooth(self, status: BluetoothStatus) -> None:
         self._snapshot.bluetooth = status
         self._schedule_broadcast(
-            DebuggerMessage(type="bluetooth", data=status.model_dump())
+            DebuggerMessage(type="bluetooth", data=status.model_dump(mode="json"))
         )
 
     def update_system(self, health: SystemHealth) -> None:
         self._snapshot.system = health
         self._schedule_broadcast(
-            DebuggerMessage(type="system", data=health.model_dump())
+            DebuggerMessage(type="system", data=health.model_dump(mode="json"))
         )
 
     def push_custom(self, name: str, payload: Dict[str, Any]) -> None:
         entry = CustomEntry(name=name, payload=payload)
         self._snapshot.custom[name] = entry
         self._schedule_broadcast(
-            DebuggerMessage(type="custom", data=entry.model_dump())
+            DebuggerMessage(type="custom", data=entry.model_dump(mode="json"))
         )
 
     async def send_meta(self) -> None:
@@ -107,9 +111,11 @@ class DebuggerEngine:
 
         meta: Dict[str, Any] = {
             "board": (
-                self._snapshot.board.model_dump() if self._snapshot.board else None
+                self._snapshot.board.model_dump(mode="json")
+                if self._snapshot.board
+                else None
             ),
-            "app": self._snapshot.app.model_dump(),
+            "app": self._snapshot.app.model_dump(mode="json"),
             "timestamp": datetime.utcnow().isoformat(),
             "enabled": {
                 "gpio": self.settings.gpio_enabled,

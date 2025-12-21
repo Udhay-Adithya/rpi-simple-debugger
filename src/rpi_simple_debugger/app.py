@@ -87,7 +87,8 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
         """Return the most recent snapshot for easy polling UIs."""
 
         snapshot = app.state.engine.snapshot
-        return JSONResponse(snapshot.model_dump())
+        # Ensure datetimes and other non-JSON-native types are encoded.
+        return JSONResponse(snapshot.model_dump(mode="json"))
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:  # pragma: no cover
