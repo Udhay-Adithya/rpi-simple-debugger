@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import threading
 import time
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 import psutil
 
@@ -16,10 +16,12 @@ class NetworkMonitor:
         interval_s: float,
         on_wifi: Callable[[WiFiStatus], None],
         on_bt: Callable[[BluetoothStatus], None],
+        on_interfaces: Callable[[List[NetInterfaceStats]], None] | None = None,
     ) -> None:
         self._interval_s = interval_s
         self._on_wifi = on_wifi
         self._on_bt = on_bt
+        self._on_interfaces = on_interfaces
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
 
@@ -39,6 +41,8 @@ class NetworkMonitor:
         while not self._stop.is_set():
             self._on_wifi(self._get_wifi_status())
             self._on_bt(self._get_bt_status())
+            if self._on_interfaces is not None:
+                self._on_interfaces(self._get_interface_stats())
             time.sleep(self._interval_s)
 
     def _run_command(self, *args: str) -> str:
@@ -91,3 +95,30 @@ class NetworkMonitor:
         connected = "Connected: yes" in con_out
 
         return BluetoothStatus(powered=powered, connected=connected)
+
+    def _get_interface_stats(self) -> List[NetInterfaceStats]:
+        """Collect per-interface network statistics using psutil."""
+        result: List[NetInterfaceStats] = []
+        try:
+            io_counters = psutil.net_io_counters(pernic=True)
+            if_stats = psutil.net_if_stats()
+
+            for name, counters in io_counters.items():
+                is_up = False
+                if name in if_stats:
+                    is_up = if_stats[name].isup
+
+                result.append(
+                    NetInterfaceStats(
+                        name=name,
+                        is_up=is_up,
+                        rx_bytes=counters.bytes_recv,
+                        tx_bytes=counters.bytes_sent,
+                        rx_errs=counters.errin,
+                        tx_errs=counters.errout,
+                    )
+                )
+        except Exception:
+            pass
+
+        return result

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
+import os
 import threading
 import time
-from dataclasses import dataclass
-from typing import Callable
-
-import os
-import time
+from typing import Callable, List, Optional
 
 import psutil
 
@@ -112,4 +109,5 @@ class SystemMonitor:
             uptime_s=uptime_s,
             boot_time=boot_time,
             process_count=process_count,
+            top_processes=top_processes,
         )

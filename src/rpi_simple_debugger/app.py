@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from .config import DebuggerSettings, load_settings
 from .engine import DebuggerEngine
 from .gpio_monitor import GPIOMonitor
-from .models import GPIOState, SystemHealth, WiFiStatus, BluetoothStatus
+from .models import GPIOState, NetInterfaceStats, SystemHealth, WiFiStatus, BluetoothStatus
 from .network_monitor import NetworkMonitor
 from .system_monitor import SystemMonitor
 
@@ -22,9 +22,9 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
 
     # Monitors
     gpio_monitor: GPIOMonitor | None = None
+    default_pins = [2, 3, 4, 17, 18, 22, 23, 24, 25, 27]
     if settings.gpio_enabled:
         # Default to all BCM pins that are generally safe inputs for Pi 3/4.
-        default_pins = [2, 3, 4, 17, 18, 22, 23, 24, 25, 27]
 
         def on_gpio_change(state: GPIOState) -> None:
             engine.update_gpio(state)
@@ -35,12 +35,17 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
             interval_s=settings.gpio_poll_interval_s,
             on_change=on_gpio_change,
         )
+        # Populate gpio_schema with monitored pins
+        engine.set_gpio_schema(default_pins, settings.gpio_label_map)
 
     def on_wifi(status: WiFiStatus) -> None:
         engine.update_wifi(status)
 
     def on_bt(status: BluetoothStatus) -> None:
         engine.update_bluetooth(status)
+
+    def on_interfaces(interfaces: List[NetInterfaceStats]) -> None:
+        engine.update_interfaces(interfaces)
 
     def on_system(health: SystemHealth) -> None:
         engine.update_system(health)
@@ -51,6 +56,7 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
             interval_s=settings.network_poll_interval_s,
             on_wifi=on_wifi,
             on_bt=on_bt,
+            on_interfaces=on_interfaces,
         )
 
     system_monitor: SystemMonitor | None = None

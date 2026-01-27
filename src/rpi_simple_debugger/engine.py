@@ -15,7 +15,10 @@ from .models import (
     CustomEntry,
     DebuggerMessage,
     DebuggerSnapshot,
+    GPIOPinDefinition,
     GPIOState,
+    HealthSummary,
+    NetInterfaceStats,
     SystemHealth,
     WiFiStatus,
 )
@@ -83,6 +86,7 @@ class DebuggerEngine:
 
     def update_wifi(self, status: WiFiStatus) -> None:
         self._snapshot.wifi = status
+        self._update_health_summary()
         self._schedule_broadcast(
             DebuggerMessage(type="wifi", data=status.model_dump(mode="json"))
         )
@@ -95,9 +99,24 @@ class DebuggerEngine:
 
     def update_system(self, health: SystemHealth) -> None:
         self._snapshot.system = health
+        self._update_health_summary()
         self._schedule_broadcast(
             DebuggerMessage(type="system", data=health.model_dump(mode="json"))
         )
+
+    def update_interfaces(self, interfaces: List[NetInterfaceStats]) -> None:
+        self._snapshot.interfaces = interfaces
+        # No separate broadcast for interfaces - they're part of the snapshot
+
+    def set_gpio_schema(self, pins: List[int], label_map: Dict[int, str]) -> None:
+        """Populate the gpio_schema with monitored pin definitions."""
+        for pin in pins:
+            self._snapshot.gpio_schema[pin] = GPIOPinDefinition(
+                pin=pin,
+                label=label_map.get(pin),
+                mode="in",
+                pull="none",
+            )
 
     def push_custom(self, name: str, payload: Dict[str, Any]) -> None:
         entry = CustomEntry(name=name, payload=payload)
@@ -123,6 +142,10 @@ class DebuggerEngine:
                 "bluetooth": self.settings.bluetooth_enabled,
                 "system_health": self.settings.system_health_enabled,
             },
+            "gpio_schema": {
+                pin: defn.model_dump(mode="json")
+                for pin, defn in self._snapshot.gpio_schema.items()
+            },
         }
         await self.manager.broadcast(DebuggerMessage(type="meta", data=meta))
 
@@ -130,6 +153,28 @@ class DebuggerEngine:
 
     def _schedule_broadcast(self, message: DebuggerMessage) -> None:
         asyncio.run_coroutine_threadsafe(self.manager.broadcast(message), self._loop)
+
+    def _update_health_summary(self) -> None:
+        """Recompute health flags based on current snapshot data."""
+        health = HealthSummary()
+
+        # CPU temperature check (default threshold: 80°C)
+        if self._snapshot.system and self._snapshot.system.cpu_temp_c is not None:
+            health.cpu_hot = self._snapshot.system.cpu_temp_c > 80.0
+
+        # Disk usage check (default threshold: 90%)
+        if self._snapshot.system:
+            health.disk_low = self._snapshot.system.disk_used_percent > 90.0
+
+        # Memory usage check (default threshold: 90%)
+        if self._snapshot.system and self._snapshot.system.memory_percent is not None:
+            health.memory_high = self._snapshot.system.memory_percent > 90.0
+
+        # WiFi signal check (default threshold: -75 dBm)
+        if self._snapshot.wifi and self._snapshot.wifi.signal_level_dbm is not None:
+            health.wifi_poor = self._snapshot.wifi.signal_level_dbm < -75
+
+        self._snapshot.health = health
 
     def _detect_board(self) -> Optional[BoardInfo]:
         # Keep this intentionally lightweight and best-effort.

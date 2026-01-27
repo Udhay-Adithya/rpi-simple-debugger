@@ -45,5 +45,3 @@ __all__ = [
     "BluetoothStatus",
     "SystemHealth",
 ]
-
-__all__ = ["create_app"]

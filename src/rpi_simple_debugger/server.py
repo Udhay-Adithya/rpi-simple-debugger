@@ -31,23 +31,32 @@ class DebuggerHandle:
 def start_debugger_server(
     host: str = "0.0.0.0",
     port: int = 8000,
+    settings: DebuggerSettings | None = None,
     settings_path: Optional[str] = None,
 ) -> DebuggerHandle:
     """Start the debugger HTTP/WebSocket server in a background thread.
 
     This is the primary entry point for users who simply want to spin up the
     debugger alongside their own application code.
+
+    Args:
+        host: The host address to bind to.
+        port: The port to bind to.
+        settings: A DebuggerSettings object to use. Takes priority over settings_path.
+        settings_path: Path to a JSON settings file. Ignored if settings is provided.
     """
 
     global _engine
 
-    settings: DebuggerSettings
-    if settings_path is not None:
-        settings = load_settings(Path(settings_path))
+    resolved_settings: DebuggerSettings
+    if settings is not None:
+        resolved_settings = settings
+    elif settings_path is not None:
+        resolved_settings = load_settings(Path(settings_path))
     else:
-        settings = load_settings()
+        resolved_settings = load_settings()
 
-    app = create_app(settings=settings)
+    app = create_app(settings=resolved_settings)
     _engine = app.state.engine
 
     config = uvicorn.Config(app, host=host, port=port, log_level="info")

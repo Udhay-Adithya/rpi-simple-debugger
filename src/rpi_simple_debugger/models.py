@@ -43,6 +43,7 @@ class SystemHealth(BaseModel):
     uptime_s: Optional[float] = None
     boot_time: Optional[float] = None
     process_count: Optional[int] = None
+    top_processes: Optional[List["ProcessInfo"]] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
