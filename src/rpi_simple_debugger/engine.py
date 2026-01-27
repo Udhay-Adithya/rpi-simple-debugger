@@ -155,24 +155,35 @@ class DebuggerEngine:
         asyncio.run_coroutine_threadsafe(self.manager.broadcast(message), self._loop)
 
     def _update_health_summary(self) -> None:
-        """Recompute health flags based on current snapshot data."""
+        """Recompute health flags based on current snapshot data and configured thresholds."""
         health = HealthSummary()
 
-        # CPU temperature check (default threshold: 80°C)
+        # CPU temperature check (configurable threshold)
         if self._snapshot.system and self._snapshot.system.cpu_temp_c is not None:
-            health.cpu_hot = self._snapshot.system.cpu_temp_c > 80.0
+            health.cpu_hot = (
+                self._snapshot.system.cpu_temp_c > self.settings.cpu_temp_threshold_c
+            )
 
-        # Disk usage check (default threshold: 90%)
+        # Disk usage check (configurable threshold)
         if self._snapshot.system:
-            health.disk_low = self._snapshot.system.disk_used_percent > 90.0
+            health.disk_low = (
+                self._snapshot.system.disk_used_percent
+                > self.settings.disk_usage_threshold_percent
+            )
 
-        # Memory usage check (default threshold: 90%)
+        # Memory usage check (configurable threshold)
         if self._snapshot.system and self._snapshot.system.memory_percent is not None:
-            health.memory_high = self._snapshot.system.memory_percent > 90.0
+            health.memory_high = (
+                self._snapshot.system.memory_percent
+                > self.settings.memory_usage_threshold_percent
+            )
 
-        # WiFi signal check (default threshold: -75 dBm)
+        # WiFi signal check (configurable threshold)
         if self._snapshot.wifi and self._snapshot.wifi.signal_level_dbm is not None:
-            health.wifi_poor = self._snapshot.wifi.signal_level_dbm < -75
+            health.wifi_poor = (
+                self._snapshot.wifi.signal_level_dbm
+                < self.settings.wifi_signal_threshold_dbm
+            )
 
         self._snapshot.health = health
 

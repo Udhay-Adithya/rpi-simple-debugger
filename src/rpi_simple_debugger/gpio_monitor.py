@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
-from .gpio_backend import GPIOBackend, MockGPIOBackend, RPiGPIOBackend
+from .gpio_backend import GPIOBackend, GPIOZeroBackend, MockGPIOBackend, RPiGPIOBackend
 from .models import GPIOState
 
 
@@ -22,6 +21,7 @@ class GPIOMonitor:
         label_map: Dict[int, str],
         interval_s: float,
         on_change: Callable[[GPIOState], None],
+        backend: str = "auto",
     ) -> None:
         self._pins = pins
         self._label_map = label_map
@@ -30,14 +30,37 @@ class GPIOMonitor:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._last_values: Dict[int, int] = {}
-        # Auto-select a backend: use real GPIO when possible, otherwise mock.
-        backend: GPIOBackend
-        candidate = RPiGPIOBackend()
-        # If RPi.GPIO import failed, candidate behaves like mock anyway.
-        backend = (
-            candidate if isinstance(candidate, RPiGPIOBackend) else MockGPIOBackend()
-        )
-        self._backend = backend
+        self._backend = self._create_backend(backend)
+
+    def _create_backend(self, backend_name: str) -> GPIOBackend:
+        """Create the appropriate GPIO backend based on configuration."""
+        if backend_name == "mock":
+            return MockGPIOBackend()
+
+        if backend_name == "rpi":
+            candidate = RPiGPIOBackend()
+            if candidate._gpio is not None:
+                return candidate
+            # Fall back to mock if RPi.GPIO not available
+            return MockGPIOBackend()
+
+        if backend_name == "gpiozero":
+            candidate = GPIOZeroBackend()
+            if candidate._available:
+                return candidate
+            # Fall back to mock if gpiozero not available
+            return MockGPIOBackend()
+
+        # Auto mode: try RPi.GPIO first, then gpiozero, then mock
+        rpi_candidate = RPiGPIOBackend()
+        if rpi_candidate._gpio is not None:
+            return rpi_candidate
+
+        gpiozero_candidate = GPIOZeroBackend()
+        if gpiozero_candidate._available:
+            return gpiozero_candidate
+
+        return MockGPIOBackend()
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():

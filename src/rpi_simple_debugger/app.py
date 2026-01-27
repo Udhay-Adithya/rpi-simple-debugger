@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import DebuggerSettings, load_settings
 from .engine import DebuggerEngine
 from .gpio_monitor import GPIOMonitor
-from .models import GPIOState, NetInterfaceStats, SystemHealth, WiFiStatus, BluetoothStatus
+from .models import DebuggerMessage, GPIOState, NetInterfaceStats, SystemHealth, WiFiStatus, BluetoothStatus
 from .network_monitor import NetworkMonitor
 from .system_monitor import SystemMonitor
 
@@ -17,26 +19,37 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
     settings = settings or load_settings()
 
     app = FastAPI(title="rpi-simple-debugger", version="0.1.0")
+
+    # Add CORS middleware if enabled (for web dashboards)
+    if settings.cors_enabled:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
     engine = DebuggerEngine(settings=settings, version="0.1.0")
     app.state.engine = engine
 
-    # Monitors
+    # Monitors - use configurable GPIO pins
     gpio_monitor: GPIOMonitor | None = None
-    default_pins = [2, 3, 4, 17, 18, 22, 23, 24, 25, 27]
+    monitored_pins = settings.effective_gpio_pins
     if settings.gpio_enabled:
-        # Default to all BCM pins that are generally safe inputs for Pi 3/4.
 
         def on_gpio_change(state: GPIOState) -> None:
             engine.update_gpio(state)
 
         gpio_monitor = GPIOMonitor(
-            pins=default_pins,
+            pins=monitored_pins,
             label_map=settings.gpio_label_map,
             interval_s=settings.gpio_poll_interval_s,
             on_change=on_gpio_change,
+            backend=settings.gpio_backend,
         )
         # Populate gpio_schema with monitored pins
-        engine.set_gpio_schema(default_pins, settings.gpio_label_map)
+        engine.set_gpio_schema(monitored_pins, settings.gpio_label_map)
 
     def on_wifi(status: WiFiStatus) -> None:
         engine.update_wifi(status)
@@ -98,12 +111,28 @@ def create_app(settings: DebuggerSettings | None = None) -> FastAPI:
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:  # pragma: no cover
-        manager = app.state.engine.manager
+        engine_instance: DebuggerEngine = app.state.engine
+        manager = engine_instance.manager
         await manager.connect(websocket)
+
+        # Send current snapshot immediately so new clients have full state
         try:
-            # For now, the client does not need to send anything.
+            snapshot_data = engine_instance.snapshot.model_dump(mode="json")
+            await websocket.send_json({
+                "type": "snapshot",
+                "data": snapshot_data,
+            })
+        except Exception:
+            manager.disconnect(websocket)
+            return
+
+        try:
+            # Handle incoming messages (for heartbeat ping-pong)
             while True:
-                await websocket.receive_text()
+                message = await websocket.receive_text()
+                # Respond to ping with pong for connection health monitoring
+                if message == "ping":
+                    await websocket.send_text("pong")
         except WebSocketDisconnect:
             manager.disconnect(websocket)
 
