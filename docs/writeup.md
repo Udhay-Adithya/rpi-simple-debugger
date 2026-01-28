@@ -403,10 +403,19 @@ The debugger automatically computes derived health flags based on configurable t
 
   ```json
   {
-    "type": "<message_type>",  // "gpio", "wifi", "bluetooth", or "system"
+    "type": "<message_type>",  // "gpio", "wifi", "bluetooth", "system", or "snapshot"
     "data": { ... }            // monitor-specific payload
   }
   ```
+
+- **Initial Snapshot:**
+  - Upon connection, the server immediately sends a `snapshot` message containing the complete current state.
+  - This allows clients to render the full UI immediately without waiting for updates.
+
+- **Heartbeat (Ping-Pong):**
+  - Clients can send `"ping"` text messages to keep connections alive.
+  - The server responds with `"pong"`.
+  - This helps detect dropped connections in network environments with aggressive timeouts.
 
 - **Client behavior:**
   - Connect once, keep the connection open.
@@ -418,9 +427,13 @@ The debugger automatically computes derived health flags based on configurable t
   const ws = new WebSocket('ws://<pi-address>:8000/ws');
 
   ws.onmessage = (event) => {
+    if (event.data === 'pong') return; // heartbeat response
     const msg = JSON.parse(event.data);
     console.log(`[${msg.type}]`, msg.data);
   };
+  
+  // Send periodic heartbeat
+  setInterval(() => ws.send('ping'), 30000);
   ```
 
 - **Example (Python test client provided in repo):**
@@ -454,10 +467,18 @@ Configuration is defined in a **single JSON file**, for example `rpi_debugger_se
   "gpio_poll_interval_s": 0.1,
   "network_poll_interval_s": 2.0,
   "system_poll_interval_s": 2.0,
+  "gpio_pins": [17, 18, 22, 27],
+  "gpio_backend": "auto",
   "gpio_labels": [
     { "pin": 17, "label": "LED" },
     { "pin": 27, "label": "Button" }
-  ]
+  ],
+  "cpu_temp_threshold_c": 80.0,
+  "disk_usage_threshold_percent": 90.0,
+  "memory_usage_threshold_percent": 90.0,
+  "wifi_signal_threshold_dbm": -75,
+  "cors_enabled": true,
+  "cors_origins": ["*"]
 }
 ```
 
@@ -474,8 +495,20 @@ Configuration options include:
   - `network_poll_interval_s`
   - `system_poll_interval_s`
 
-- **GPIO pin labels:**
-  - `gpio_labels`: mapping of pin numbers to human-readable labels.
+- **GPIO configuration:**
+  - `gpio_pins`: Custom list of BCM pins to monitor (uses safe defaults if null).
+  - `gpio_backend`: GPIO backend selection (`"auto"`, `"rpi"`, `"gpiozero"`, or `"mock"`).
+  - `gpio_labels`: Mapping of pin numbers to human-readable labels.
+
+- **Health thresholds:**
+  - `cpu_temp_threshold_c`: Temperature threshold for `cpu_hot` flag.
+  - `disk_usage_threshold_percent`: Disk usage threshold for `disk_low` flag.
+  - `memory_usage_threshold_percent`: Memory usage threshold for `memory_high` flag.
+  - `wifi_signal_threshold_dbm`: WiFi signal threshold for `wifi_poor` flag.
+
+- **CORS configuration:**
+  - `cors_enabled`: Enable/disable CORS middleware.
+  - `cors_origins`: List of allowed CORS origins.
 
 ### 6.2 Safe Defaults
 
@@ -514,7 +547,11 @@ This section is more technical and can support a research‑style analysis of th
 
 3. **GPIO Monitor (gpio_monitor.py)**
    - Encapsulates GPIO polling behavior.
-   - Uses a background thread and `RPi.GPIO` library when available.
+   - Uses a pluggable backend system supporting:
+     - `RPi.GPIO` (classic Raspberry Pi GPIO library)
+     - `gpiozero` (modern, Pythonic GPIO library)
+     - `MockGPIOBackend` (for testing on non-Raspberry Pi systems)
+   - Backend is selected via `gpio_backend` setting (`"auto"`, `"rpi"`, `"gpiozero"`, or `"mock"`).
    - On each poll:
      - Reads each configured pin.
      - Detects changes by comparing to the last observed value.

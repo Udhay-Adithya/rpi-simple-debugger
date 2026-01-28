@@ -75,9 +75,22 @@ push_custom("my_app", {"state": "running", "jobs": 5})
 # handle.stop()
 ```
 
-**Option 2: Run as standalone server**
+**Option 2: Run from command line (CLI)**
 
 ```bash
+# Basic usage
+python -m rpi_simple_debugger
+
+# With custom host and port
+python -m rpi_simple_debugger --host 0.0.0.0 --port 8000
+
+# Disable specific monitors
+python -m rpi_simple_debugger --no-gpio --no-bluetooth
+
+# Use a config file
+python -m rpi_simple_debugger --config settings.json
+
+# Or use uvicorn directly
 uvicorn rpi_simple_debugger.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
@@ -409,12 +422,19 @@ All configuration is optional. If no `rpi_debugger_settings.json` file is presen
 | `network_poll_interval_s` | float | `2.0` | Network polling interval in seconds |
 | `system_poll_interval_s` | float | `2.0` | System health polling interval in seconds |
 | `gpio_labels` | array | `[]` | Array of pin labels: `[{"pin": 17, "label": "LED"}]` |
-| `gpio_backend` | string | `"auto"` | GPIO backend: `"auto"`, `"rpi"`, or `"mock"` |
+| `gpio_pins` | array | `null` | Custom list of BCM pins to monitor (uses defaults if null) |
+| `gpio_backend` | string | `"auto"` | GPIO backend: `"auto"`, `"rpi"`, `"gpiozero"`, or `"mock"` |
+| `cpu_temp_threshold_c` | float | `80.0` | CPU temperature threshold for `cpu_hot` health flag |
+| `disk_usage_threshold_percent` | float | `90.0` | Disk usage threshold for `disk_low` health flag |
+| `memory_usage_threshold_percent` | float | `90.0` | Memory usage threshold for `memory_high` health flag |
+| `wifi_signal_threshold_dbm` | int | `-75` | WiFi signal threshold for `wifi_poor` health flag |
+| `cors_enabled` | boolean | `true` | Enable CORS for web dashboards |
+| `cors_origins` | array | `["*"]` | Allowed CORS origins |
 
 **Default Monitored GPIO Pins (BCM numbering):**
 `2, 3, 4, 17, 18, 22, 23, 24, 25, 27`
 
-These are generally safe input pins on Raspberry Pi 3/4 models.
+These are generally safe input pins on Raspberry Pi 3/4 models. You can customize this with `gpio_pins`.
 
 ## Design Goals
 
@@ -441,8 +461,33 @@ These are generally safe input pins on Raspberry Pi 3/4 models.
 - uvicorn 0.30.0+
 - pydantic 2.7.0+
 - psutil 6.0.0+
-- RPi.GPIO 0.7.0+ (Raspberry Pi only)
+- RPi.GPIO 0.7.0+ (Raspberry Pi only, optional)
+- gpiozero 2.0.0+ (alternative GPIO backend, optional)
 - websockets (for WebSocket support)
+
+## CLI Reference
+
+```
+usage: python -m rpi_simple_debugger [-h] [--host HOST] [--port PORT]
+                                     [--config CONFIG] [--no-gpio] [--no-wifi]
+                                     [--no-bluetooth] [--no-system]
+                                     [--gpio-backend {auto,rpi,gpiozero,mock}]
+                                     [--gpio-interval INTERVAL] [--reload]
+                                     [--version]
+
+Options:
+  --host HOST           Host address to bind to (default: 0.0.0.0)
+  --port PORT           Port to bind to (default: 8000)
+  --config CONFIG       Path to JSON configuration file
+  --no-gpio             Disable GPIO monitoring
+  --no-wifi             Disable WiFi monitoring
+  --no-bluetooth        Disable Bluetooth monitoring
+  --no-system           Disable system health monitoring
+  --gpio-backend        GPIO backend: auto, rpi, gpiozero, or mock
+  --gpio-interval       GPIO polling interval in seconds (default: 0.1)
+  --reload              Enable auto-reload for development
+  --version             Show version and exit
+```
 
 ## License
 
