@@ -95,6 +95,14 @@ class GPIOPinDefinition(BaseModel):
     pull: Literal["up", "down", "none"] = "none"
 
 
+class AnalogReading(BaseModel):
+    channel: int = Field(..., description="ADC channel number")
+    raw: int = Field(..., description="Raw ADC count")
+    voltage: float = Field(..., description="Computed voltage")
+    label: Optional[str] = Field(None, description="Human-readable label")
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
 class DebuggerSnapshot(BaseModel):
     gpio: Dict[int, GPIOState] = Field(default_factory=dict)
     wifi: Optional[WiFiStatus] = None
@@ -104,6 +112,7 @@ class DebuggerSnapshot(BaseModel):
     interfaces: List[NetInterfaceStats] = Field(default_factory=list)
     health: HealthSummary = Field(default_factory=HealthSummary)
     gpio_schema: Dict[int, GPIOPinDefinition] = Field(default_factory=dict)
+    analog: Dict[int, AnalogReading] = Field(default_factory=dict)
     board: Optional[BoardInfo] = None
     app: AppInfo
 
