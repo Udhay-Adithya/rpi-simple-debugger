@@ -9,6 +9,7 @@ from fastapi import WebSocket
 
 from .config import DebuggerSettings
 from .models import (
+    AnalogReading,
     AppInfo,
     BluetoothStatus,
     BoardInfo,
@@ -107,6 +108,16 @@ class DebuggerEngine:
     def update_interfaces(self, interfaces: List[NetInterfaceStats]) -> None:
         self._snapshot.interfaces = interfaces
         # No separate broadcast for interfaces - they're part of the snapshot
+
+    def update_analog(self, reading: AnalogReading) -> None:
+        self._snapshot.analog[reading.channel] = reading
+        self._schedule_broadcast(
+            DebuggerMessage(type="custom", data={
+                "name": "analog",
+                "channel": reading.channel,
+                **reading.model_dump(mode="json"),
+            })
+        )
 
     def set_gpio_schema(self, pins: List[int], label_map: Dict[int, str]) -> None:
         """Populate the gpio_schema with monitored pin definitions."""
