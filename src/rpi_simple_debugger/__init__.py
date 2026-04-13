@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from .app import create_app
 from .config import DebuggerSettings
+from .gpio_backend import GPIOBackendError
 from .models import (
+    AnalogReading,
     BluetoothStatus,
     GPIOState,
     SystemHealth,
@@ -40,8 +42,10 @@ __all__ = [
     "DebuggerHandle",
     "get_engine",
     "push_custom",
+    "GPIOBackendError",
     "GPIOState",
     "WiFiStatus",
     "BluetoothStatus",
     "SystemHealth",
+    "AnalogReading",
 ]

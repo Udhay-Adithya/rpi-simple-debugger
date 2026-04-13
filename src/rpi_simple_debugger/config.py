@@ -11,6 +11,11 @@ class GPIOLabel(BaseModel):
     label: str = Field(..., description="Human-readable purpose label")
 
 
+class AnalogChannelLabel(BaseModel):
+    channel: int = Field(..., description="ADC channel number")
+    label: str = Field(..., description="Human-readable label for the channel")
+
+
 class DebuggerSettings(BaseModel):
     gpio_enabled: bool = True
     wifi_enabled: bool = True
@@ -32,10 +37,41 @@ class DebuggerSettings(BaseModel):
     gpio_backend: str = Field(
         "auto",
         description=(
-            "Which GPIO backend to use: 'auto', 'rpi', 'gpiozero', 'mock', or a "
-            "custom backend string understood by the host application."
+            "Which GPIO backend to use: 'auto', 'rpi', 'gpiozero', 'libgpiod', "
+            "'mock', or a custom backend string understood by the host application."
         ),
     )
+
+    # GPIO output pins
+    gpio_output_pins: Optional[List[int]] = Field(
+        default=None,
+        description="List of BCM pin numbers to configure as outputs.",
+    )
+    gpio_output_labels: List[GPIOLabel] = Field(default_factory=list)
+
+    # Analog input (ADC) settings
+    analog_enabled: bool = Field(
+        False, description="Enable analog input monitoring via ADC."
+    )
+    analog_backend: str = Field(
+        "mcp3008",
+        description="ADC backend: 'mcp3008' or 'ads1115'.",
+    )
+    analog_channels: Optional[List[int]] = Field(
+        default=None,
+        description="ADC channels to monitor (e.g. [0, 1, 2]).",
+    )
+    analog_labels: List[AnalogChannelLabel] = Field(default_factory=list)
+    analog_poll_interval_s: float = Field(
+        0.5, description="Polling interval for analog readings in seconds."
+    )
+    analog_v_ref: float = Field(
+        3.3, description="Reference voltage for ADC voltage calculations."
+    )
+    analog_spi_bus: int = Field(0, description="SPI bus number for MCP3008.")
+    analog_spi_device: int = Field(0, description="SPI device number for MCP3008.")
+    analog_i2c_bus: int = Field(1, description="I²C bus number for ADS1115.")
+    analog_i2c_address: int = Field(0x48, description="I²C address for ADS1115.")
 
     # Health thresholds for HealthSummary flags
     cpu_temp_threshold_c: float = Field(
@@ -68,6 +104,14 @@ class DebuggerSettings(BaseModel):
     @property
     def gpio_label_map(self) -> Dict[int, str]:
         return {item.pin: item.label for item in self.gpio_labels}
+
+    @property
+    def gpio_output_label_map(self) -> Dict[int, str]:
+        return {item.pin: item.label for item in self.gpio_output_labels}
+
+    @property
+    def analog_label_map(self) -> Dict[int, str]:
+        return {item.channel: item.label for item in self.analog_labels}
 
     @property
     def effective_gpio_pins(self) -> List[int]:

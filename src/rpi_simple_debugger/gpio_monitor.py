@@ -4,7 +4,14 @@ import threading
 import time
 from typing import Callable, Dict, List, Optional
 
-from .gpio_backend import GPIOBackend, GPIOZeroBackend, MockGPIOBackend, RPiGPIOBackend
+from .gpio_backend import (
+    GPIOBackend,
+    GPIOBackendError,
+    GPIOZeroBackend,
+    LibgpiodBackend,
+    MockGPIOBackend,
+    RPiGPIOBackend,
+)
 from .models import GPIOState
 
 
@@ -33,34 +40,48 @@ class GPIOMonitor:
         self._backend = self._create_backend(backend)
 
     def _create_backend(self, backend_name: str) -> GPIOBackend:
-        """Create the appropriate GPIO backend based on configuration."""
+        """Create the appropriate GPIO backend based on configuration.
+
+        Raises ``GPIOBackendError`` when the requested (or auto-detected)
+        backend cannot be initialised, instead of silently falling back to
+        mock data.
+        """
         if backend_name == "mock":
             return MockGPIOBackend()
 
         if backend_name == "rpi":
-            candidate = RPiGPIOBackend()
-            if candidate._gpio is not None:
-                return candidate
-            # Fall back to mock if RPi.GPIO not available
-            return MockGPIOBackend()
+            return RPiGPIOBackend()
 
         if backend_name == "gpiozero":
-            candidate = GPIOZeroBackend()
-            if candidate._available:
-                return candidate
-            # Fall back to mock if gpiozero not available
-            return MockGPIOBackend()
+            return GPIOZeroBackend()
 
-        # Auto mode: try RPi.GPIO first, then gpiozero, then mock
-        rpi_candidate = RPiGPIOBackend()
-        if rpi_candidate._gpio is not None:
-            return rpi_candidate
+        if backend_name == "libgpiod":
+            return LibgpiodBackend()
 
-        gpiozero_candidate = GPIOZeroBackend()
-        if gpiozero_candidate._available:
-            return gpiozero_candidate
+        # Auto mode: try RPi.GPIO → gpiozero → libgpiod
+        errors: list[str] = []
 
-        return MockGPIOBackend()
+        try:
+            return RPiGPIOBackend()
+        except GPIOBackendError as exc:
+            errors.append(f"RPi.GPIO: {exc}")
+
+        try:
+            return GPIOZeroBackend()
+        except GPIOBackendError as exc:
+            errors.append(f"gpiozero: {exc}")
+
+        try:
+            return LibgpiodBackend()
+        except GPIOBackendError as exc:
+            errors.append(f"libgpiod: {exc}")
+
+        raise GPIOBackendError(
+            "No GPIO backend could be initialised. Tried:\n"
+            + "\n".join(f"  - {e}" for e in errors)
+            + "\n\nSet gpio_enabled=false in configuration if GPIO "
+            "monitoring is not needed, or install a supported GPIO library."
+        )
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
